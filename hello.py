@@ -1,13 +1,18 @@
+import base64
 import datetime
 import json
 import os
+import struct
+from pathlib import Path
 
 import requests
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from dotenv import load_dotenv
 
-from pypush_gsa_icloud import (
-    AppleHeaders,
-)
+from pypush_gsa_icloud import AppleHeaders
 
 load_dotenv()
 TRUSTED_DEVICE = bool(os.environ.get("TRUSTED_DEVICE", False))
@@ -64,8 +69,42 @@ def download_tag_data(tag_ids, days=7):
     return r.json()
 
 
+def decrypt(enc_data, algorithm_dkey, mode):
+    decryptor = Cipher(algorithm_dkey, mode, default_backend()).decryptor()
+    return decryptor.update(enc_data) + decryptor.finalize()
+
+
+def decode_tag(data):
+    latitude = struct.unpack(">i", data[0:4])[0] / 10000000.0
+    longitude = struct.unpack(">i", data[4:8])[0] / 10000000.0
+    confidence = int.from_bytes(data[8:9], "big")
+    status = int.from_bytes(data[9:10], "big")
+    return {"lat": latitude, "lon": longitude, "conf": confidence, "status": status}
+
+
 def main():
-    res = download_tag_data([""])
+    id_tag_names = {}
+    id_keys = {}
+    for tag_file in (Path(__file__).parent / "data/tags").glob("*.txt"):
+        for tag in tag_file.read_text(encoding="utf-8").strip().split("\n"):
+            priv_key = tag.strip()
+
+            keypair = ec.derive_private_key(
+                int.from_bytes(base64.b64decode(priv_key), byteorder="big"),
+                ec.SECP224R1(),
+                default_backend(),
+            )
+            pubkey_bytes = (
+                keypair.public_key().public_numbers().x.to_bytes(28, byteorder="big")
+            )
+            public_key_hash = hashes.Hash(hashes.SHA256())
+            public_key_hash.update(pubkey_bytes)
+            s256_b64 = base64.b64encode(public_key_hash.finalize()).decode()
+            id_keys[s256_b64] = keypair
+            id_tag_names[s256_b64] = tag_file.stem
+            pass
+
+    res = download_tag_data(list(id_keys.keys()))
     print(res)
     pass
 
