@@ -4,8 +4,11 @@ import hashlib
 import json
 import os
 import struct
+import time
+from json import JSONDecodeError
 from pathlib import Path
 
+import paho.mqtt.client as mqtt
 import requests
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
@@ -20,6 +23,12 @@ TRUSTED_DEVICE = bool(os.environ.get("TRUSTED_DEVICE"))
 APPLE_USERNAME = os.environ["APPLE_USERNAME"]
 APPLE_PASSWORD = os.environ["APPLE_PASSWORD"]
 ANISETTE_URL = os.environ.get("ANISETTE_URL")
+MQTT_TOPIC_PREFIX = os.environ.get("MQTT_TOPIC", "owntracks/haystack/")
+MQTT_SERVER = os.environ.get("MQTT_SERVER")
+MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
+MQTT_USERNAME = os.environ.get("MQTT_USERNAME")
+MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD")
+MQTT_TLS = os.environ.get("MQTT_TLS", "FALSE").upper()
 
 
 def getAuth(regenerate=False, second_factor="sms", apple_headers=None):
@@ -138,18 +147,58 @@ def decrypt_report(payload: str, key: ec.EllipticCurvePrivateKey) -> dict:
 
 
 def main():
+    last_timestamps = {}
+
+    def on_message(client, userdata, msg):
+        try:
+            report = json.loads(msg.payload)
+            name = msg.topic.split("/")[-1]
+            last_timestamps[name] = int(report.get("tst", 0))
+        except (JSONDecodeError, ValueError):
+            return
+
+    def on_connect(client, userdata, flags, reason_code, properties):
+        if reason_code != "Success":
+            raise Exception(f"MQTT Connection Error: {reason_code}")
+        print(f"Connected to MQTT server")
+
+    mqttc = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    mqttc.on_message = on_message
+    mqttc.on_connect = on_connect
+    mqttc.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
+    if MQTT_TLS == "TRUE":
+        mqttc.tls_set()
+    mqttc.connect(MQTT_SERVER, MQTT_PORT, 60)
+    mqttc.subscribe(MQTT_TOPIC_PREFIX + "#")
+    mqttc.loop_start()
+    time.sleep(1)
+    mqttc.unsubscribe(MQTT_TOPIC_PREFIX + "#")
+
+    print(
+        f"Stopped Listening to MQTT messages, got {len(last_timestamps)} last timestamps"
+    )
+
     keys, names = load_keys((Path(__file__).parent / "data/tags"))
     enc_reports = download_reports(list(keys.keys()))
     reports = [
         (
             names[r["id"]],
             decrypt_report(r["payload"], keys[r["id"]])
-            | {"created_at": r["datePublished"] // 1000},
+            | {"created_at": r["datePublished"] // 1000, "_type": "location"},
         )
         for r in enc_reports
     ]
     reports.sort(key=lambda r: r[1]["tst"])
-    print(reports)
+    for name, report in reports:
+        if report["tst"] > last_timestamps.get(name, 0):
+            msg = mqttc.publish(
+                MQTT_TOPIC_PREFIX + name, json.dumps(report), 2, retain=True
+            )
+            msg.wait_for_publish(1)
+            print(f"Published {name} with tst {report['tst']}")
+    mqttc.disconnect()
+    mqttc.loop_stop()
+    print("Disconnected from MQTT server")
 
 
 if __name__ == "__main__":
