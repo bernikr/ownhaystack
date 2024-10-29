@@ -1,5 +1,6 @@
 import base64
 import datetime
+import hashlib
 import json
 import os
 import struct
@@ -30,7 +31,7 @@ def getAuth(regenerate=False, second_factor="sms", apple_headers=None):
         mobileme = apple_headers.icloud_login_mobileme(
             username=APPLE_USERNAME,
             password=APPLE_PASSWORD,
-            second_factor=second_factor
+            second_factor=second_factor,
         )
         j = {
             "dsid": mobileme["dsid"],
@@ -45,7 +46,7 @@ def getAuth(regenerate=False, second_factor="sms", apple_headers=None):
     return j["dsid"], j["searchPartyToken"]
 
 
-def download_tag_data(tag_ids, days=7):
+def download_reports(tag_ids, days=7):
     unixEpoch = int(datetime.datetime.now().timestamp())
     startdate = unixEpoch - (60 * 60 * 24 * days)
     data = {
@@ -75,23 +76,13 @@ def download_tag_data(tag_ids, days=7):
     return res
 
 
-def decrypt(enc_data, algorithm_dkey, mode):
-    decryptor = Cipher(algorithm_dkey, mode, default_backend()).decryptor()
-    return decryptor.update(enc_data) + decryptor.finalize()
-
-
-def decode_tag(data):
-    latitude = struct.unpack(">i", data[0:4])[0] / 10000000.0
-    longitude = struct.unpack(">i", data[4:8])[0] / 10000000.0
-    confidence = int.from_bytes(data[8:9], "big")
-    status = int.from_bytes(data[9:10], "big")
-    return {"lat": latitude, "lon": longitude, "conf": confidence, "status": status}
-
-
-def main():
-    id_tag_names = {}
-    id_keys = {}
-    for tag_file in (Path(__file__).parent / "data/tags").glob("*.txt"):
+def load_keys(
+    key_folder: Path,
+) -> tuple[dict[str, ec.EllipticCurvePrivateKey], dict[str, str]]:
+    print(f"loading keys from {key_folder}")
+    names = {}
+    keys = {}
+    for tag_file in key_folder.glob("*.txt"):
         for tag in tag_file.read_text(encoding="utf-8").strip().split("\n"):
             priv_key = tag.strip()
 
@@ -106,13 +97,59 @@ def main():
             public_key_hash = hashes.Hash(hashes.SHA256())
             public_key_hash.update(pubkey_bytes)
             s256_b64 = base64.b64encode(public_key_hash.finalize()).decode()
-            id_keys[s256_b64] = keypair
-            id_tag_names[s256_b64] = tag_file.stem
-            pass
+            keys[s256_b64] = keypair
+            names[s256_b64] = tag_file.stem
+    return keys, names
 
-    res = download_tag_data(list(id_keys.keys()))
-    print(res)
-    pass
+
+def sha256(data):
+    digest = hashlib.new("sha256")
+    digest.update(data)
+    return digest.digest()
+
+
+def decrypt_report(payload: str, key: ec.EllipticCurvePrivateKey) -> dict:
+    data = base64.b64decode(payload)
+    adj = len(data) - 88  # check if NULL bytes are present in the data
+
+    eph_key = ec.EllipticCurvePublicKey.from_encoded_point(
+        ec.SECP224R1(), data[5 + adj : 62 + adj]
+    )
+    shared_key = key.exchange(ec.ECDH(), eph_key)
+    symmetric_key = sha256(shared_key + b"\x00\x00\x00\x01" + data[5 + adj : 62 + adj])
+    decryption_key = symmetric_key[:16]
+    iv = symmetric_key[16:]
+    enc_data = data[62 + adj : 72 + adj]
+    auth_tag = data[72 + adj :]
+
+    decryptor = Cipher(
+        algorithms.AES(decryption_key), modes.GCM(iv, auth_tag), default_backend()
+    ).decryptor()
+    decrypted = decryptor.update(enc_data) + decryptor.finalize()
+
+    tag = {
+        "lat": struct.unpack(">i", decrypted[0:4])[0] / 10000000.0,
+        "lon": struct.unpack(">i", decrypted[4:8])[0] / 10000000.0,
+        "acc": int.from_bytes(decrypted[8:9], "big"),
+        # "status": int.from_bytes(decrypted[9:10], "big"),
+        "tst": int.from_bytes(data[0:4], "big") + 978307200,
+    }
+    return tag
+
+
+def main():
+    keys, names = load_keys((Path(__file__).parent / "data/tags"))
+    enc_reports = download_reports(list(keys.keys()))
+    reports = [
+        (
+            names[r["id"]],
+            decrypt_report(r["payload"], keys[r["id"]])
+            | {"created_at": r["datePublished"] // 1000},
+        )
+        for r in enc_reports
+    ]
+    reports.sort(key=lambda r: r[1]["tst"])
+    print(reports)
 
 
 if __name__ == "__main__":
