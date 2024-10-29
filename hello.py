@@ -29,6 +29,7 @@ MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
 MQTT_USERNAME = os.environ.get("MQTT_USERNAME")
 MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD")
 MQTT_TLS = os.environ.get("MQTT_TLS", "FALSE").upper()
+REFRESH_INTERVAL = int(os.environ.get("REFRESH_INTERVAL", "5")) * 60
 
 
 def getAuth(regenerate=False, second_factor="sms", apple_headers=None):
@@ -194,7 +195,7 @@ def main():
             msg = mqttc.publish(
                 MQTT_TOPIC_PREFIX + name, json.dumps(report), 2, retain=True
             )
-            msg.wait_for_publish(1)
+            msg.wait_for_publish()
             print(f"Published {name} with tst {report['tst']}")
     mqttc.disconnect()
     mqttc.loop_stop()
@@ -202,4 +203,16 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    retries = 0
+    RETRY_WAITS = [5]*5 + [10]*3 + [30]* 3 + [60]*3 + [5*60]*3 + [10*60]*3
+    while True:
+        try:
+            main()
+            retries = 0
+            print(f"Sleeping for {REFRESH_INTERVAL}s...")
+            time.sleep(REFRESH_INTERVAL)
+        except Exception as e:
+            print(f"Encountered exception: {e}")
+            retries += 1
+            seconds = RETRY_WAITS[min(retries, len(RETRY_WAITS) - 1)]
+            print(f"Retrying #{retries} after {seconds} seconds")
