@@ -15,10 +15,10 @@ from dotenv import load_dotenv
 from pypush_gsa_icloud import AppleHeaders
 
 load_dotenv()
-TRUSTED_DEVICE = bool(os.environ.get("TRUSTED_DEVICE", False))
+TRUSTED_DEVICE = bool(os.environ.get("TRUSTED_DEVICE"))
 APPLE_USERNAME = os.environ["APPLE_USERNAME"]
 APPLE_PASSWORD = os.environ["APPLE_PASSWORD"]
-ANISETTE_URL = os.environ["ANISETTE_URL"]
+ANISETTE_URL = os.environ.get("ANISETTE_URL")
 
 
 def getAuth(regenerate=False, second_factor="sms", apple_headers=None):
@@ -30,8 +30,7 @@ def getAuth(regenerate=False, second_factor="sms", apple_headers=None):
         mobileme = apple_headers.icloud_login_mobileme(
             username=APPLE_USERNAME,
             password=APPLE_PASSWORD,
-            second_factor=second_factor,
-            anisette_url=ANISETTE_URL,
+            second_factor=second_factor
         )
         j = {
             "dsid": mobileme["dsid"],
@@ -56,17 +55,24 @@ def download_tag_data(tag_ids, days=7):
     }
 
     ah = AppleHeaders(ANISETTE_URL)
+    auth = getAuth(
+        second_factor="trusted_device" if TRUSTED_DEVICE else "sms",
+        apple_headers=ah,
+    )
+    headers = ah.generate_anisette_headers()
 
+    print("making request to FindMy Network")
     r = requests.post(
         "https://gateway.icloud.com/acsnservice/fetch",
-        auth=getAuth(
-            second_factor="trusted_device" if TRUSTED_DEVICE else "sms",
-            apple_headers=ah,
-        ),
-        headers=ah.generate_anisette_headers(),
+        auth=auth,
+        headers=headers,
         json=data,
     )
-    return r.json()
+    if r.status_code != requests.codes.ok:
+        raise Exception(f"Status {r.status_code}: {r.text}")
+    res = r.json()["results"]
+    print(f"got {len(res)} results")
+    return res
 
 
 def decrypt(enc_data, algorithm_dkey, mode):

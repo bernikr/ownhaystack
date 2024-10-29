@@ -1,6 +1,6 @@
 # This is a modified version of
 # https://github.com/MatthewKuKanich/FindMyFlipper/blob/main/AirTagGeneration/cores/pypush_gsa_icloud.py
-
+import random
 from getpass import getpass
 import plistlib as plist
 import json
@@ -23,11 +23,30 @@ srp.rfc5054_enable()
 srp.no_username_in_x()
 
 
+# Get a random public anisette server if none is specified
+def get_anisette_url():
+    print("getting random public anisette server")
+    servers = requests.get(
+        "https://servers.sidestore.io/servers.json"
+    ).json()["servers"]
+    for server in servers:
+        url = server["address"]
+        try:
+            r = requests.get(url, timeout=1)
+            if r.status_code == requests.codes.ok and r.json():
+                return url
+        except:  # noqa: E722
+            pass
+    raise Exception("No anisette servers found")
+
+
 class AppleHeaders:
     def __init__(self, anisette_url):
         self.ANISETTE_URL = anisette_url
         self.USER_ID = uuid.uuid4()
         self.DEVICE_ID = uuid.uuid4()
+        if not self.ANISETTE_URL:
+            self.ANISETTE_URL = get_anisette_url()
 
     def icloud_login_mobileme(self, username="", password="", second_factor="sms"):
         if not username:
@@ -168,7 +187,7 @@ class AppleHeaders:
 
     def generate_anisette_headers(self):
         print(f"querying {self.ANISETTE_URL} for an anisette server")
-        h = json.loads(requests.get(self.ANISETTE_URL, timeout=5).text)
+        h = requests.get(self.ANISETTE_URL, timeout=5).json()
         a = {"X-Apple-I-MD": h["X-Apple-I-MD"], "X-Apple-I-MD-M": h["X-Apple-I-MD-M"]}
         a.update(self.generate_meta_headers())
         return a
