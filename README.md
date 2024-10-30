@@ -1,9 +1,9 @@
 # OwnHaystack (Macless OpenHaystack + Owntracks)
 
 This project is meant as a simpler alternative to [Macless-Haystack](https://github.com/dchristl/macless-haystack),
-by focusing on its main competency: getting position reports from Apple FindMy Network.
+by focusing on its main competency: getting position reports from Apple's FindMy Network.
 
-It doesn't include its own frontend, but is meant to be used in conjuncture with an MQTT broker
+It doesn't include its own frontend, but is meant to be used in conjunction with an MQTT broker
 and [OwnTracks](https://owntracks.org/booklet/guide/whathow/). All this project does is collecting position reports,
 decrypting them and publishing them to an MQTT broker in
 a [standardized format](https://owntracks.org/booklet/tech/json/#_typelocation).
@@ -58,7 +58,7 @@ All of this projects features are configured through environment variables:
 This project is based on: (Credits go to them for the hard work)
 
 - [FindMyFlipper](https://github.com/MatthewKuKanich/FindMyFlipper)
-    - For most of the code connecting to Apples servers and decrypting the reports
+    - For most of the code connecting to Apple's servers and decrypting the reports
 - [Macless-Haystack](https://github.com/dchristl/macless-haystack)
     - For the Firmewares and Key Generation
     - which in turn is also based on:
