@@ -1,7 +1,7 @@
 [project]
-name = "macless-haystack-owntracks"
+name = "ownhaystack"
 version = "0.1.0"
-description = "Add your description here"
+description = "OpenHaystack + Owntracks"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
