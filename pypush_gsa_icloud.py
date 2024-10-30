@@ -1,22 +1,18 @@
 # This is a modified version of
 # https://github.com/MatthewKuKanich/FindMyFlipper/blob/main/AirTagGeneration/cores/pypush_gsa_icloud.py
-import random
-from getpass import getpass
-import plistlib as plist
-import json
-import uuid
-import pbkdf2
-import requests
+import base64
 import hashlib
 import hmac
-import base64
-import locale
-from datetime import datetime
+import plistlib as plist
+import uuid
+from getpass import getpass
+
+import pbkdf2
+import requests
 import srp._pysrp as srp
+from Crypto.Hash import SHA256
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from Crypto.Hash import SHA256
-
 
 # Configure SRP library for compatibility with Apple's implementation
 srp.rfc5054_enable()
@@ -43,8 +39,6 @@ def get_anisette_url():
 class AppleHeaders:
     def __init__(self, anisette_url):
         self.ANISETTE_URL = anisette_url
-        self.USER_ID = uuid.uuid4()
-        self.DEVICE_ID = uuid.uuid4()
         if not self.ANISETTE_URL:
             self.ANISETTE_URL = get_anisette_url()
 
@@ -62,7 +56,7 @@ class AppleHeaders:
             "apple-id": username,
             "delegates": {"com.apple.mobileme": {}},
             "password": pet,
-            "client-id": str(self.USER_ID),
+            "client-id": str(uuid.uuid4()),  # todo use uuid from anisette
         }
         data = plist.dumps(data)
 
@@ -188,26 +182,7 @@ class AppleHeaders:
     def generate_anisette_headers(self):
         print(f"querying {self.ANISETTE_URL} for an anisette server")
         h = requests.get(self.ANISETTE_URL, timeout=5).json()
-        a = {"X-Apple-I-MD": h["X-Apple-I-MD"], "X-Apple-I-MD-M": h["X-Apple-I-MD-M"]}
-        a.update(self.generate_meta_headers())
-        return a
-
-    def generate_meta_headers(self, serial="0"):
-        return {
-            "X-Apple-I-Client-Time": datetime.utcnow()
-            .replace(microsecond=0)
-            .isoformat()
-            + "Z",
-            "X-Apple-I-TimeZone": str(datetime.utcnow().astimezone().tzinfo),
-            "loc": locale.getdefaultlocale()[0] or "en_US",
-            "X-Apple-Locale": locale.getdefaultlocale()[0] or "en_US",
-            "X-Apple-I-MD-RINFO": "17106176",  # either 17106176 or 50660608
-            "X-Apple-I-MD-LU": base64.b64encode(
-                str(self.USER_ID).upper().encode()
-            ).decode(),
-            "X-Mme-Device-Id": str(self.DEVICE_ID).upper(),
-            "X-Apple-I-SRL-NO": serial,  # Serial number
-        }
+        return h
 
     def encrypt_password(self, password, salt, iterations, hex=False):
         hash = hashlib.sha256(password.encode("utf-8"))

@@ -30,7 +30,7 @@ services:
     volumes:
       - ./data/owntracks:/store
     environment:
-      - OTR_HOST=MQTT
+      - OTR_HOST=mqtt
     ports:
       - "8083:8083"
 

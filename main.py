@@ -35,6 +35,7 @@ REFRESH_INTERVAL = int(os.environ.get("REFRESH_INTERVAL", "5")) * 60
 AUTH_FILE = Path(os.environ.get("AUTH_FILE", Path(__file__).parent / "data/auth.json"))
 KEY_FOLDER = Path(os.environ.get("KEY_FOLDER", Path(__file__).parent / "data/keys"))
 
+
 def getAuth(regenerate=False, second_factor="sms", apple_headers=None):
     if AUTH_FILE.exists() and not regenerate:
         with AUTH_FILE.open("r") as f:
@@ -45,6 +46,10 @@ def getAuth(regenerate=False, second_factor="sms", apple_headers=None):
             password=APPLE_PASSWORD,
             second_factor=second_factor,
         )
+        if mobileme["status"] != 0:
+            raise Exception(
+                f"Error logging in Apppe Account: {mobileme["status-message"]}"
+            )
         j = {
             "dsid": mobileme["dsid"],
             "searchPartyToken": mobileme.get("delegates")
@@ -81,6 +86,11 @@ def download_reports(tag_ids, days=7):
         headers=headers,
         json=data,
     )
+    if r.status_code == requests.codes.unauthorized:
+        print(
+            "Got 401 Unauthorized from Server try logging in again (might require 2fa agian)"
+        )
+        getAuth(True, apple_headers=ah)
     if r.status_code != requests.codes.ok:
         raise Exception(f"Status {r.status_code}: {r.text}")
     res = r.json()["results"]
@@ -206,10 +216,12 @@ def main():
 
 if __name__ == "__main__":
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-    print = (functools.partial(print, flush=True))
+    print = functools.partial(print, flush=True)
 
     retries = 0
-    RETRY_WAITS = [5]*5 + [10]*3 + [30]* 3 + [60]*3 + [5*60]*3 + [10*60]*3
+    RETRY_WAITS = (
+        [5] * 5 + [10] * 3 + [30] * 3 + [60] * 3 + [5 * 60] * 3 + [10 * 60] * 3
+    )
     while True:
         try:
             main()
