@@ -21,10 +21,10 @@ the [OwnTracks Recorder](https://owntracks.org/booklet/clients/recorder/) as a f
        for [ESP32](https://github.com/dchristl/macless-haystack/tree/main/firmware/ESP32),
        [nrf5x](https://github.com/dchristl/macless-haystack/tree/main/firmware/nrf5x)
        or [Flipper Zero](https://github.com/MatthewKuKanich/FindMyFlipper/tree/main?tab=readme-ov-file#step-by-step-instructions)
-    2. For every tag create a `.priv_key` file in the `./data/keys` folder containing one base64 enecoded private key
+    2. For every tag create a `.priv_keys` file in the `./data/keys` folder containing one base64 enecoded private key
        per line.
        (Multiple lines are only needed if you are using rotating keys on the device.)
-    3. The filename of the file will be used as the mqtt topic and name of the tag. E.g., `flipper.priv_key` will result
+    3. The filename of the file will be used as the mqtt topic and name of the tag. E.g., `flipper.priv_keys` will result
        in its position reports to be posted to `owntracks/haystack/flipper`
 4. Start the container in interactive mode with `docker-compose run --rm haystack`
 5. Enter your 2FA code when you are asked for it
