@@ -1,6 +1,6 @@
 services:
   haystack:
-    build: .
+    image: ghcr.io/bernikr/macless-haystack-owntracks
     depends_on:
       - mqtt
       - anisette
