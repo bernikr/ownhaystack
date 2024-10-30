@@ -1,4 +1,4 @@
-# Macless Haystackk OwnTracks
+# OwnHaystack (Macless OpenHaystack + Owntracks)
 
 This project is meant as a simpler alternative to [Macless-Haystack](https://github.com/dchristl/macless-haystack),
 by focusing on its main competency: getting position reports from Apple FindMy Network.
