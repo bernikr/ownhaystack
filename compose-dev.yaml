@@ -1,0 +1,41 @@
+services:
+  haystack:
+    build: .
+    depends_on:
+      - mqtt
+      - anisette
+      - owntracks
+    volumes:
+      - ./data:/data
+    environment:
+      - APPLE_USERNAME=${APPLE_USERNAME}
+      - APPLE_PASSWORD=${APPLE_PASSWORD}
+      - MQTT_SERVER=mqtt
+      - ANISETTE_URL=http://anisette:6969
+  mqtt:
+    image: eclipse-mosquitto:2.0
+    configs:
+      - source: mosquitto.conf
+        target: /mosquitto/config/mosquitto.conf
+  anisette:
+    image: dadoum/anisette-v3-server:latest
+    volumes:
+      - ./data/anisette:/home/Alcoholic/.config/anisette-v3/
+    ports:
+      - "6969:6969"
+  owntracks:
+    image: owntracks/recorder:0.9.9
+    depends_on:
+      - mqtt
+    volumes:
+      - ./data/owntracks:/store
+    environment:
+      - OTR_HOST=MQTT
+    ports:
+      - "8083:8083"
+
+configs:
+  mosquitto.conf:
+    content: |
+      allow_anonymous true
+      listener 1883

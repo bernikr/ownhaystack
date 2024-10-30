@@ -1,5 +1,6 @@
 import base64
 import datetime
+import functools
 import hashlib
 import json
 import os
@@ -10,6 +11,7 @@ from pathlib import Path
 
 import paho.mqtt.client as mqtt
 import requests
+import urllib3
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -30,12 +32,12 @@ MQTT_USERNAME = os.environ.get("MQTT_USERNAME")
 MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD")
 MQTT_TLS = os.environ.get("MQTT_TLS", "FALSE").upper()
 REFRESH_INTERVAL = int(os.environ.get("REFRESH_INTERVAL", "5")) * 60
-
+AUTH_FILE = Path(os.environ.get("AUTH_FILE", Path(__file__).parent / "data/auth.json"))
+KEY_FOLDER = Path(os.environ.get("KEY_FOLDER", Path(__file__).parent / "data/keys"))
 
 def getAuth(regenerate=False, second_factor="sms", apple_headers=None):
-    CONFIG_PATH = os.path.dirname(os.path.realpath(__file__)) + "/data/auth.json"
-    if os.path.exists(CONFIG_PATH) and not regenerate:
-        with open(CONFIG_PATH, "r") as f:
+    if AUTH_FILE.exists() and not regenerate:
+        with AUTH_FILE.open("r") as f:
             j = json.load(f)
     else:
         mobileme = apple_headers.icloud_login_mobileme(
@@ -51,7 +53,7 @@ def getAuth(regenerate=False, second_factor="sms", apple_headers=None):
             .get("tokens")
             .get("searchPartyToken"),
         }
-        with open(CONFIG_PATH, "w") as f:
+        with AUTH_FILE.open("w") as f:
             json.dump(j, f)
     return j["dsid"], j["searchPartyToken"]
 
@@ -92,7 +94,7 @@ def load_keys(
     print(f"loading keys from {key_folder}")
     names = {}
     keys = {}
-    for tag_file in key_folder.glob("*.txt"):
+    for tag_file in key_folder.glob("*.priv_keys"):
         for tag in tag_file.read_text(encoding="utf-8").strip().split("\n"):
             priv_key = tag.strip()
 
@@ -179,7 +181,7 @@ def main():
         f"Stopped Listening to MQTT messages, got {len(last_timestamps)} last timestamps"
     )
 
-    keys, names = load_keys((Path(__file__).parent / "data/tags"))
+    keys, names = load_keys(KEY_FOLDER)
     enc_reports = download_reports(list(keys.keys()))
     reports = [
         (
@@ -203,6 +205,9 @@ def main():
 
 
 if __name__ == "__main__":
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    print = (functools.partial(print, flush=True))
+
     retries = 0
     RETRY_WAITS = [5]*5 + [10]*3 + [30]* 3 + [60]*3 + [5*60]*3 + [10*60]*3
     while True:
@@ -216,3 +221,4 @@ if __name__ == "__main__":
             retries += 1
             seconds = RETRY_WAITS[min(retries, len(RETRY_WAITS) - 1)]
             print(f"Retrying #{retries} after {seconds} seconds")
+            time.sleep(seconds)
