@@ -3,8 +3,10 @@
 import base64
 import hashlib
 import hmac
+import locale
 import plistlib as plist
 import uuid
+from datetime import datetime
 from getpass import getpass
 
 import pbkdf2
@@ -22,9 +24,9 @@ srp.no_username_in_x()
 # Get a random public anisette server if none is specified
 def get_anisette_url():
     print("getting random public anisette server")
-    servers = requests.get(
-        "https://servers.sidestore.io/servers.json"
-    ).json()["servers"]
+    servers = requests.get("https://servers.sidestore.io/servers.json").json()[
+        "servers"
+    ]
     for server in servers:
         url = server["address"]
         try:
@@ -39,6 +41,8 @@ def get_anisette_url():
 class AppleHeaders:
     def __init__(self, anisette_url):
         self.ANISETTE_URL = anisette_url
+        self.USER_ID = uuid.uuid4()
+        self.DEVICE_ID = uuid.uuid4()
         if not self.ANISETTE_URL:
             self.ANISETTE_URL = get_anisette_url()
 
@@ -56,7 +60,7 @@ class AppleHeaders:
             "apple-id": username,
             "delegates": {"com.apple.mobileme": {}},
             "password": pet,
-            "client-id": str(uuid.uuid4()),  # todo use uuid from anisette
+            "client-id": str(self.USER_ID),
         }
         data = plist.dumps(data)
 
@@ -182,7 +186,26 @@ class AppleHeaders:
     def generate_anisette_headers(self):
         print(f"querying {self.ANISETTE_URL} for an anisette server")
         h = requests.get(self.ANISETTE_URL, timeout=5).json()
-        return h
+        a = {"X-Apple-I-MD": h["X-Apple-I-MD"], "X-Apple-I-MD-M": h["X-Apple-I-MD-M"]}
+        a.update(self.generate_meta_headers())
+        return a
+
+    def generate_meta_headers(self, serial="0"):
+        return {
+            "X-Apple-I-Client-Time": datetime.utcnow()
+            .replace(microsecond=0)
+            .isoformat()
+            + "Z",
+            "X-Apple-I-TimeZone": str(datetime.utcnow().astimezone().tzinfo),
+            "loc": locale.getdefaultlocale()[0] or "en_US",
+            "X-Apple-Locale": locale.getdefaultlocale()[0] or "en_US",
+            "X-Apple-I-MD-RINFO": "17106176",  # either 17106176 or 50660608
+            "X-Apple-I-MD-LU": base64.b64encode(
+                str(self.USER_ID).upper().encode()
+            ).decode(),
+            "X-Mme-Device-Id": str(self.DEVICE_ID).upper(),
+            "X-Apple-I-SRL-NO": serial,  # Serial number
+        }
 
     def encrypt_password(self, password, salt, iterations, hex=False):
         hash = hashlib.sha256(password.encode("utf-8"))
