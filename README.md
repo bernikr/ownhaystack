@@ -19,7 +19,7 @@ the [OwnTracks Recorder](https://owntracks.org/booklet/clients/recorder/) as a f
 3. Setup the tags with their keys
     1. Depending on your hardware follow the instructions
        for [ESP32](https://github.com/dchristl/macless-haystack/tree/main/firmware/ESP32),
-       [nrf5x](https://github.com/dchristl/macless-haystack/tree/main/firmware/nrf5x)
+       [nrf5x](https://github.com/dchristl/macless-haystack/tree/main/firmware/nrf5x), [Bluefruit devices](https://gist.github.com/bernikr/df70be66b2fd6dd40b80bce906948ef7)
        or [Flipper Zero](https://github.com/MatthewKuKanich/FindMyFlipper/tree/main?tab=readme-ov-file#step-by-step-instructions)
     2. For every tag create a `.priv_keys` file in the `./data/keys` folder containing one base64 enecoded private key
        per line.
