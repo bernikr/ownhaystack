@@ -15,9 +15,18 @@ dependencies = [
 ]
 
 [tool.uv]
-dev-dependencies = [
-    "ruff>=0.6.9",
-]
+dev-dependencies = ["ruff>=0.6.9"]
+
+[tool.ruff]
+line-length = 120
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F", "B", "Q"]
+preview = true
+select = ["ALL"]
+ignore = [
+    "D",      # pydocstyle
+    "CPY",    # flake8-copyright
+    "T20",    # flake8-print
+    "TRY002", # Custom Exceptions
+    "PGH003", # Use specific rule codes when ignoring type issues
+]

@@ -8,6 +8,7 @@ import struct
 import time
 from json import JSONDecodeError
 from pathlib import Path
+from typing import Any, Literal
 
 import paho.mqtt.client as mqtt
 import requests
@@ -17,6 +18,9 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from dotenv import load_dotenv
+from paho.mqtt.enums import CallbackAPIVersion
+from paho.mqtt.properties import Properties
+from paho.mqtt.reasoncodes import ReasonCode
 
 from pypush_gsa_icloud import AppleHeaders
 
@@ -26,7 +30,7 @@ APPLE_USERNAME = os.environ["APPLE_USERNAME"]
 APPLE_PASSWORD = os.environ["APPLE_PASSWORD"]
 ANISETTE_URL = os.environ.get("ANISETTE_URL")
 MQTT_TOPIC_PREFIX = os.environ.get("MQTT_TOPIC", "owntracks/haystack/")
-MQTT_SERVER = os.environ.get("MQTT_SERVER")
+MQTT_SERVER = os.environ["MQTT_SERVER"]
 MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
 MQTT_USERNAME = os.environ.get("MQTT_USERNAME")
 MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD")
@@ -36,7 +40,12 @@ AUTH_FILE = Path(os.environ.get("AUTH_FILE", Path(__file__).parent / "data/auth.
 KEY_FOLDER = Path(os.environ.get("KEY_FOLDER", Path(__file__).parent / "data/keys"))
 
 
-def getAuth(regenerate=False, second_factor="sms", apple_headers=None):
+def get_auth(
+    apple_headers: AppleHeaders,
+    *,
+    regenerate: bool = False,
+    second_factor: Literal["sms", "trusted_device"] = "sms",
+) -> tuple[str, str]:
     if AUTH_FILE.exists() and not regenerate:
         with AUTH_FILE.open("r") as f:
             j = json.load(f)
@@ -47,36 +56,26 @@ def getAuth(regenerate=False, second_factor="sms", apple_headers=None):
             second_factor=second_factor,
         )
         if mobileme["status"] != 0:
-            raise Exception(
-                f"Error logging in Apppe Account: {mobileme["status-message"]}"
-            )
+            msg = f"Error logging in Apppe Account: {mobileme["status-message"]}"
+            raise Exception(msg)
         j = {
             "dsid": mobileme["dsid"],
-            "searchPartyToken": mobileme.get("delegates")
-            .get("com.apple.mobileme")
-            .get("service-data")
-            .get("tokens")
-            .get("searchPartyToken"),
+            "searchPartyToken": mobileme["delegates"]["com.apple.mobileme"]["service-data"]["tokens"][
+                "searchPartyToken"
+            ],
         }
         with AUTH_FILE.open("w") as f:
             json.dump(j, f)
     return j["dsid"], j["searchPartyToken"]
 
 
-def download_reports(tag_ids, days=7):
-    unixEpoch = int(datetime.datetime.now().timestamp())
-    startdate = unixEpoch - (60 * 60 * 24 * days)
-    data = {
-        "search": [
-            {"startDate": startdate * 1000, "endDate": unixEpoch * 1000, "ids": tag_ids}
-        ]
-    }
+def download_reports(tag_ids: list[str], days: int = 7) -> list[dict[str, Any]]:
+    unix_epoch = int(datetime.datetime.now(tz=datetime.UTC).timestamp())
+    startdate = unix_epoch - (60 * 60 * 24 * days)
+    data = {"search": [{"startDate": startdate * 1000, "endDate": unix_epoch * 1000, "ids": tag_ids}]}
 
     ah = AppleHeaders(ANISETTE_URL)
-    auth = getAuth(
-        second_factor="trusted_device" if TRUSTED_DEVICE else "sms",
-        apple_headers=ah,
-    )
+    auth = get_auth(ah, second_factor="trusted_device" if TRUSTED_DEVICE else "sms")
     headers = ah.generate_anisette_headers()
 
     print("making request to FindMy Network")
@@ -85,14 +84,14 @@ def download_reports(tag_ids, days=7):
         auth=auth,
         headers=headers,
         json=data,
+        timeout=10,
     )
     if r.status_code == requests.codes.unauthorized:
-        print(
-            "Got 401 Unauthorized from Server try logging in again (might require 2fa agian)"
-        )
-        getAuth(True, apple_headers=ah)
+        print("Got 401 Unauthorized from Server try logging in again (might require 2fa agian)")
+        get_auth(ah, regenerate=True)
     if r.status_code != requests.codes.ok:
-        raise Exception(f"Status {r.status_code}: {r.text}")
+        msg = f"Status {r.status_code}: {r.text}"
+        raise Exception(msg)
     res = r.json()["results"]
     print(f"got {len(res)} results")
     return res
@@ -113,9 +112,7 @@ def load_keys(
                 ec.SECP224R1(),
                 default_backend(),
             )
-            pubkey_bytes = (
-                keypair.public_key().public_numbers().x.to_bytes(28, byteorder="big")
-            )
+            pubkey_bytes = keypair.public_key().public_numbers().x.to_bytes(28, byteorder="big")
             public_key_hash = hashes.Hash(hashes.SHA256())
             public_key_hash.update(pubkey_bytes)
             s256_b64 = base64.b64encode(public_key_hash.finalize()).decode()
@@ -124,7 +121,7 @@ def load_keys(
     return keys, names
 
 
-def sha256(data):
+def sha256(data: bytes) -> bytes:
     digest = hashlib.new("sha256")
     digest.update(data)
     return digest.digest()
@@ -134,9 +131,7 @@ def decrypt_report(payload: str, key: ec.EllipticCurvePrivateKey) -> dict:
     data = base64.b64decode(payload)
     adj = len(data) - 88  # check if NULL bytes are present in the data
 
-    eph_key = ec.EllipticCurvePublicKey.from_encoded_point(
-        ec.SECP224R1(), data[5 + adj : 62 + adj]
-    )
+    eph_key = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP224R1(), data[5 + adj : 62 + adj])
     shared_key = key.exchange(ec.ECDH(), eph_key)
     symmetric_key = sha256(shared_key + b"\x00\x00\x00\x01" + data[5 + adj : 62 + adj])
     decryption_key = symmetric_key[:16]
@@ -144,25 +139,22 @@ def decrypt_report(payload: str, key: ec.EllipticCurvePrivateKey) -> dict:
     enc_data = data[62 + adj : 72 + adj]
     auth_tag = data[72 + adj :]
 
-    decryptor = Cipher(
-        algorithms.AES(decryption_key), modes.GCM(iv, auth_tag), default_backend()
-    ).decryptor()
+    decryptor = Cipher(algorithms.AES(decryption_key), modes.GCM(iv, auth_tag), default_backend()).decryptor()
     decrypted = decryptor.update(enc_data) + decryptor.finalize()
 
-    tag = {
+    return {
         "lat": struct.unpack(">i", decrypted[0:4])[0] / 10000000.0,
         "lon": struct.unpack(">i", decrypted[4:8])[0] / 10000000.0,
         "acc": int.from_bytes(decrypted[8:9], "big"),
-        # "status": int.from_bytes(decrypted[9:10], "big"),
+        # "status": int.from_bytes(decrypted[9:10], "big"),  # noqa: ERA001
         "tst": int.from_bytes(data[0:4], "big") + 978307200,
     }
-    return tag
 
 
-def main():
+def main() -> None:
     last_timestamps = {}
 
-    def on_message(client, userdata, msg):
+    def on_message(client: mqtt.Client, userdata: Any, msg: mqtt.MQTTMessage) -> None:  # noqa: ANN401, ARG001
         try:
             report = json.loads(msg.payload)
             name = msg.topic.split("/")[-1]
@@ -170,12 +162,19 @@ def main():
         except (JSONDecodeError, ValueError):
             return
 
-    def on_connect(client, userdata, flags, reason_code, properties):
+    def on_connect(
+        client: mqtt.Client,  # noqa: ARG001
+        userdata: Any,  # noqa: ANN401, ARG001
+        flags: dict[str, Any],  # noqa: ARG001
+        reason_code: ReasonCode,
+        properties: Properties | None,  # noqa: ARG001
+    ) -> None:
         if reason_code != "Success":
-            raise Exception(f"MQTT Connection Error: {reason_code}")
-        print(f"Connected to MQTT server")
+            msg = f"MQTT Connection Error: {reason_code}"
+            raise Exception(msg)
+        print("Connected to MQTT server")
 
-    mqttc = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    mqttc = mqtt.Client(CallbackAPIVersion.VERSION2)
     mqttc.on_message = on_message
     mqttc.on_connect = on_connect
     mqttc.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
@@ -187,9 +186,7 @@ def main():
     time.sleep(1)
     mqttc.unsubscribe(MQTT_TOPIC_PREFIX + "#")
 
-    print(
-        f"Stopped Listening to MQTT messages, got {len(last_timestamps)} last timestamps"
-    )
+    print(f"Stopped Listening to MQTT messages, got {len(last_timestamps)} last timestamps")
 
     keys, names = load_keys(KEY_FOLDER)
     enc_reports = download_reports(list(keys.keys()))
@@ -204,9 +201,7 @@ def main():
     reports.sort(key=lambda r: r[1]["tst"])
     for name, report in reports:
         if report["tst"] > last_timestamps.get(name, 0):
-            msg = mqttc.publish(
-                MQTT_TOPIC_PREFIX + name, json.dumps(report), 2, retain=True
-            )
+            msg = mqttc.publish(MQTT_TOPIC_PREFIX + name, json.dumps(report), 2, retain=True)
             msg.wait_for_publish()
             print(f"Published {name} with tst {report['tst']}")
     mqttc.disconnect()
@@ -216,19 +211,17 @@ def main():
 
 if __name__ == "__main__":
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-    print = functools.partial(print, flush=True)
+    print = functools.partial(print, flush=True)  # noqa: A001
 
     retries = 0
-    RETRY_WAITS = (
-        [5] * 5 + [10] * 3 + [30] * 3 + [60] * 3 + [5 * 60] * 3 + [10 * 60] * 3
-    )
+    RETRY_WAITS = [5] * 5 + [10] * 3 + [30] * 3 + [60] * 3 + [5 * 60] * 3 + [10 * 60] * 3
     while True:
         try:
             main()
             retries = 0
             print(f"Sleeping for {REFRESH_INTERVAL}s...")
             time.sleep(REFRESH_INTERVAL)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"Encountered exception: {e}")
             retries += 1
             seconds = RETRY_WAITS[min(retries, len(RETRY_WAITS) - 1)]

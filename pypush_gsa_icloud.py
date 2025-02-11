@@ -6,13 +6,14 @@ import hmac
 import locale
 import plistlib as plist
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from getpass import getpass
+from typing import Any, Literal, assert_never
 
 import pbkdf2
 import requests
-import srp._pysrp as srp
-from Crypto.Hash import SHA256
+import srp._pysrp as srp  # noqa: PLC2701
+from Crypto.Hash import SHA256  # noqa: S413
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
@@ -22,37 +23,42 @@ srp.no_username_in_x()
 
 
 # Get a random public anisette server if none is specified
-def get_anisette_url():
+def get_anisette_url() -> str:
     print("getting random public anisette server")
-    servers = requests.get("https://servers.sidestore.io/servers.json").json()[
-        "servers"
-    ]
+    servers = requests.get("https://servers.sidestore.io/servers.json", timeout=5).json()["servers"]
     for server in servers:
         url = server["address"]
         try:
             r = requests.get(url, timeout=1)
             if r.status_code == requests.codes.ok and r.json():
                 return url
-        except:  # noqa: E722
+        except:  # noqa: E722, S110
             pass
-    raise Exception("No anisette servers found")
+    msg = "No anisette servers found"
+    raise Exception(msg)
 
 
 class AppleHeaders:
-    def __init__(self, anisette_url):
-        self.ANISETTE_URL = anisette_url
+    def __init__(self, anisette_url: str | None) -> None:
         self.USER_ID = uuid.uuid4()
         self.DEVICE_ID = uuid.uuid4()
-        if not self.ANISETTE_URL:
+        if anisette_url:
+            self.ANISETTE_URL = anisette_url
+        else:
             self.ANISETTE_URL = get_anisette_url()
 
-    def icloud_login_mobileme(self, username="", password="", second_factor="sms"):
+    def icloud_login_mobileme(
+        self,
+        username: str = "",
+        password: str = "",
+        second_factor: Literal["sms", "trusted_device"] = "sms",
+    ) -> dict[str, Any]:
         if not username:
             username = getpass("Apple ID: ")
         if not password:
             password = getpass("Password: ")
 
-        g = self.gsa_authenticate(username, password, second_factor)
+        g: Any = self.gsa_authenticate(username, password, second_factor)
         pet = g["t"]["com.apple.gs.idms.pet"]["token"]
         adsid = g["adsid"]
 
@@ -67,7 +73,7 @@ class AppleHeaders:
         headers = {
             "X-Apple-ADSID": adsid,
             "User-Agent": "com.apple.iCloudHelper/282 CFNetwork/1408.0.4 Darwin/22.5.0",
-            "X-Mme-Client-Info": "<MacBookPro18,3> <Mac OS X;13.4.1;22F8> <com.apple.AOSKit/282 (com.apple.accountsd/113)>",
+            "X-Mme-Client-Info": "<MacBookPro18,3> <Mac OS X;13.4.1;22F8> <com.apple.AOSKit/282 (com.apple.accountsd/113)>",  # noqa: E501
         }
         headers.update(self.generate_anisette_headers())
 
@@ -76,60 +82,61 @@ class AppleHeaders:
             auth=(username, pet),
             data=data,
             headers=headers,
-            verify=False,
+            verify=False,  # noqa: S501
+            timeout=10,
         )
 
         return plist.loads(r.content)
 
-    def gsa_authenticate(self, username, password, second_factor="sms"):
+    def gsa_authenticate(  # noqa: C901
+        self,
+        username: str,
+        password: str,
+        second_factor: Literal["sms", "trusted_device"] = "sms",
+    ) -> dict[str, Any] | None:
         # Password is None as we'll provide it later
-        usr = srp.User(username, bytes(), hash_alg=srp.SHA256, ng_type=srp.NG_2048)
-        _, A = usr.start_authentication()
+        usr = srp.User(username, b"", hash_alg=srp.SHA256, ng_type=srp.NG_2048)
+        _, a = usr.start_authentication()
 
-        r = self.gsa_authenticated_request(
-            {"A2k": A, "ps": ["s2k", "s2k_fo"], "u": username, "o": "init"}
-        )
+        r = self.gsa_authenticated_request({"A2k": a, "ps": ["s2k", "s2k_fo"], "u": username, "o": "init"})
         if "sp" not in r:
             print("Authentication Failed. Check your Apple ID and password.")
-            raise Exception("AuthenticationError")
+            msg = "AuthenticationError"
+            raise Exception(msg)
         if r["sp"] != "s2k" and r["sp"] != "s2k_fo":
-            print(
-                f"This implementation only supports s2k and s2k_fo. Server returned {r['sp']}"
-            )
-            return
+            print(f"This implementation only supports s2k and s2k_fo. Server returned {r['sp']}")
+            return None
 
         # Change the password out from under the SRP library, as we couldn't calculate it without the salt.
-        usr.p = self.encrypt_password(password, r["s"], r["i"], r["sp"] == "s2k_fo")
+        usr.p = self.encrypt_password(password, r["s"], r["i"], hex=r["sp"] == "s2k_fo")
 
-        M = usr.process_challenge(r["s"], r["B"])
+        m = usr.process_challenge(r["s"], r["B"])
 
         # Make sure we processed the challenge correctly
-        if M is None:
+        if m is None:
             print("Failed to process challenge")
-            return
+            return None
 
-        r = self.gsa_authenticated_request(
-            {"c": r["c"], "M1": M, "u": username, "o": "complete"}
-        )
+        r = self.gsa_authenticated_request({"c": r["c"], "M1": m, "u": username, "o": "complete"})
 
         # Make sure that the server's session key matches our session key (and thus that they are not an imposter)
         usr.verify_session(r["M2"])
         if not usr.authenticated():
             print("Failed to verify session")
-            return
+            return None
 
         spd = self.decrypt_cbc(usr, r["spd"])
         # For some reason plistlib doesn't accept it without the header...
         PLISTHEADER = b"""\
 <?xml version='1.0' encoding='UTF-8'?>
 <!DOCTYPE plist PUBLIC '-//Apple//DTD PLIST 1.0//EN' 'http://www.apple.com/DTDs/PropertyList-1.0.dtd'>
-"""
+"""  # noqa: N806
         spd = plist.loads(PLISTHEADER + spd)
 
-        if "au" in r["Status"] and r["Status"]["au"] in [
+        if "au" in r["Status"] and r["Status"]["au"] in {
             "trustedDeviceSecondaryAuth",
             "secondaryAuth",
-        ]:
+        }:
             print("2FA required, requesting code")
             # Replace bytes with strings
             for k, v in spd.items():
@@ -139,14 +146,14 @@ class AppleHeaders:
                 self.sms_second_factor(spd["adsid"], spd["GsIdmsToken"])
             elif second_factor == "trusted_device":
                 self.trusted_second_factor(spd["adsid"], spd["GsIdmsToken"])
-            return self.gsa_authenticate(username, password)
-        elif "au" in r["Status"]:
+            else:
+                assert_never(second_factor)
+        if "au" in r["Status"]:
             print(f"Unknown auth value {r['Status']['au']}")
-            return
-        else:
-            return spd
+            return None
+        return spd
 
-    def gsa_authenticated_request(self, parameters):
+    def gsa_authenticated_request(self, parameters: dict[str, Any]) -> dict[str, Any]:
         body = {
             "Header": {"Version": "1.0.1"},
             "Request": {"cpd": self.generate_cpd()},
@@ -157,20 +164,20 @@ class AppleHeaders:
             "Content-Type": "text/x-xml-plist",
             "Accept": "*/*",
             "User-Agent": "akd/1.0 CFNetwork/978.0.7 Darwin/18.7.0",
-            "X-MMe-Client-Info": "<MacBookPro18,3> <Mac OS X;13.4.1;22F8> <com.apple.AOSKit/282 (com.apple.dt.Xcode/3594.4.19)>",
+            "X-MMe-Client-Info": "<MacBookPro18,3> <Mac OS X;13.4.1;22F8> <com.apple.AOSKit/282 (com.apple.dt.Xcode/3594.4.19)>",  # noqa: E501
         }
 
         resp = requests.post(
             "https://gsa.apple.com/grandslam/GsService2",
             headers=headers,
             data=plist.dumps(body),
-            verify=False,
+            verify=False,  # noqa: S501
             timeout=5,
         )
 
         return plist.loads(resp.content)["Response"]
 
-    def generate_cpd(self):
+    def generate_cpd(self) -> dict[str, Any]:
         cpd = {
             # Many of these values are not strictly necessary, but may be tracked by Apple
             "bootstrap": True,  # All implementations set this to true
@@ -183,42 +190,38 @@ class AppleHeaders:
         cpd.update(self.generate_anisette_headers())
         return cpd
 
-    def generate_anisette_headers(self):
+    def generate_anisette_headers(self) -> dict[str, Any]:
         print(f"querying {self.ANISETTE_URL} for an anisette server")
         h = requests.get(self.ANISETTE_URL, timeout=5).json()
         a = {"X-Apple-I-MD": h["X-Apple-I-MD"], "X-Apple-I-MD-M": h["X-Apple-I-MD-M"]}
         a.update(self.generate_meta_headers())
         return a
 
-    def generate_meta_headers(self, serial="0"):
+    def generate_meta_headers(self, serial: str = "0") -> dict[str, str]:
         return {
-            "X-Apple-I-Client-Time": datetime.utcnow()
-            .replace(microsecond=0)
-            .isoformat()
-            + "Z",
-            "X-Apple-I-TimeZone": str(datetime.utcnow().astimezone().tzinfo),
+            "X-Apple-I-Client-Time": datetime.now(tz=UTC).replace(microsecond=0).isoformat() + "Z",
+            "X-Apple-I-TimeZone": str(datetime.now(tz=UTC).astimezone().tzinfo),
             "loc": locale.getdefaultlocale()[0] or "en_US",
             "X-Apple-Locale": locale.getdefaultlocale()[0] or "en_US",
             "X-Apple-I-MD-RINFO": "17106176",  # either 17106176 or 50660608
-            "X-Apple-I-MD-LU": base64.b64encode(
-                str(self.USER_ID).upper().encode()
-            ).decode(),
+            "X-Apple-I-MD-LU": base64.b64encode(str(self.USER_ID).upper().encode()).decode(),
             "X-Mme-Device-Id": str(self.DEVICE_ID).upper(),
             "X-Apple-I-SRL-NO": serial,  # Serial number
         }
 
-    def encrypt_password(self, password, salt, iterations, hex=False):
-        hash = hashlib.sha256(password.encode("utf-8"))
+    def encrypt_password(self, password: str, salt: Any, iterations: int, *, hex: bool = False) -> bytes:  # noqa: A002, ANN401, PLR6301
+        hash = hashlib.sha256(password.encode("utf-8"))  # noqa: A001
         p = hash.hexdigest() if hex else hash.digest()
-        return pbkdf2.PBKDF2(p, salt, iterations, SHA256).read(32)
+        return pbkdf2.PBKDF2(p, salt, iterations, SHA256).read(32)  # type: ignore
 
-    def create_session_key(self, usr, name):
+    def create_session_key(self, usr: srp.User, name: str) -> bytes:  # noqa: PLR6301
         k = usr.get_session_key()
         if k is None:
-            raise Exception("No session key")
+            msg = "No session key"
+            raise Exception(msg)
         return hmac.new(k, name.encode(), hashlib.sha256).digest()
 
-    def decrypt_cbc(self, usr, data):
+    def decrypt_cbc(self, usr: srp.User, data: bytes) -> bytes:
         extra_data_key = self.create_session_key(usr, "extra data key:")
         extra_data_iv = self.create_session_key(usr, "extra data iv:")
         # Get only the first 16 bytes of the iv
@@ -232,7 +235,7 @@ class AppleHeaders:
         padder = padding.PKCS7(128).unpadder()
         return padder.update(data) + padder.finalize()
 
-    def trusted_second_factor(self, dsid, idms_token):
+    def trusted_second_factor(self, dsid: str, idms_token: str) -> None:
         identity_token = base64.b64encode((dsid + ":" + idms_token).encode()).decode()
 
         headers = {
@@ -243,7 +246,7 @@ class AppleHeaders:
             "X-Apple-Identity-Token": identity_token,
             "X-Apple-App-Info": "com.apple.gs.xcode.auth",
             "X-Xcode-Version": "11.2 (11B41)",
-            "X-Mme-Client-Info": "<MacBookPro18,3> <Mac OS X;13.4.1;22F8> <com.apple.AOSKit/282 (com.apple.dt.Xcode/3594.4.19)>",
+            "X-Mme-Client-Info": "<MacBookPro18,3> <Mac OS X;13.4.1;22F8> <com.apple.AOSKit/282 (com.apple.dt.Xcode/3594.4.19)>",  # noqa: E501
         }
 
         headers.update(self.generate_anisette_headers())
@@ -254,7 +257,7 @@ class AppleHeaders:
         requests.get(
             "https://gsa.apple.com/auth/verify/trusteddevice",
             headers=headers,
-            verify=False,
+            verify=False,  # noqa: S501
             timeout=10,
         )
 
@@ -266,32 +269,25 @@ class AppleHeaders:
         resp = requests.get(
             "https://gsa.apple.com/grandslam/GsService2/validate",
             headers=headers,
-            verify=False,
+            verify=False,  # noqa: S501
             timeout=10,
         )
         if resp.ok:
             print("2FA successful")
 
-    def sms_second_factor(self, dsid, idms_token):
+    def sms_second_factor(self, dsid: str, idms_token: str) -> None:
         identity_token = base64.b64encode((dsid + ":" + idms_token).encode()).decode()
-
-        # TODO: Actually do this request to get user prompt data
-        # a = requests.get("https://gsa.apple.com/auth", verify=False)
-        # This request isn't strictly necessary though,
-        # and most accounts should have their id 1 SMS, if not contribute ;)
-
         headers = {
             "User-Agent": "Xcode",
             "Accept-Language": "en-us",
             "X-Apple-Identity-Token": identity_token,
             "X-Apple-App-Info": "com.apple.gs.xcode.auth",
             "X-Xcode-Version": "11.2 (11B41)",
-            "X-Mme-Client-Info": "<MacBookPro18,3> <Mac OS X;13.4.1;22F8> <com.apple.AOSKit/282 (com.apple.dt.Xcode/3594.4.19)>",
+            "X-Mme-Client-Info": "<MacBookPro18,3> <Mac OS X;13.4.1;22F8> <com.apple.AOSKit/282 (com.apple.dt.Xcode/3594.4.19)>",  # noqa: E501
         }
 
         headers.update(self.generate_anisette_headers())
 
-        # TODO: Actually get the correct id, probably in the above GET
         body = {"phoneNumber": {"id": 1}, "mode": "sms"}
 
         # This will send the 2FA code to the user's phone over SMS
@@ -301,9 +297,12 @@ class AppleHeaders:
             "https://gsa.apple.com/auth/verify/phone/",
             json=body,
             headers=headers,
-            verify=False,
+            verify=False,  # noqa: S501
             timeout=5,
         )
+        if not t.ok:
+            msg = "Error when requesting 2FA code"
+            raise Exception(msg)
         # Prompt for the 2FA code. It's just a string like '123456', no dashes or spaces
         code = input("Enter 2FA code: ")
 
@@ -314,7 +313,7 @@ class AppleHeaders:
             "https://gsa.apple.com/auth/verify/phone/securitycode",
             json=body,
             headers=headers,
-            verify=False,
+            verify=False,  # noqa: S501
             timeout=5,
         )
         if resp.ok:
