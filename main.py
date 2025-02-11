@@ -6,6 +6,7 @@ import json
 import os
 import struct
 import time
+import traceback
 from json import JSONDecodeError
 from pathlib import Path
 from typing import Any, Literal
@@ -223,6 +224,7 @@ if __name__ == "__main__":
             time.sleep(REFRESH_INTERVAL)
         except Exception as e:  # noqa: BLE001
             print(f"Encountered exception: {e}")
+            traceback.print_exc()
             retries += 1
             seconds = RETRY_WAITS[min(retries, len(RETRY_WAITS) - 1)]
             print(f"Retrying #{retries} after {seconds} seconds")
