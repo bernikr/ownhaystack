@@ -13,20 +13,20 @@ a [standardized format](https://owntracks.org/booklet/tech/json/#_typelocation).
 This is meant as a fully featured and easy jumping off point, by also including the setup for an MQTT broker, as well as
 the [OwnTracks Recorder](https://owntracks.org/booklet/clients/recorder/) as a frontend.
 
-0. Make sure Docker and Docker Compose are installed on your system
+0. Make sure Docker and Docker Compose (>=2.23.1) are installed on your system
 1. Download the [`compose.yaml`](compose.yaml) file
 2. Replace `${APPLE_USERNAME}` and `${APPLE_PASSWORD}` with your login data
 3. Setup the tags with their keys
     1. Depending on your hardware follow the instructions
        for [ESP32](https://github.com/dchristl/macless-haystack/tree/main/firmware/ESP32),
-       [nrf5x](https://github.com/dchristl/macless-haystack/tree/main/firmware/nrf5x)
+       [nrf5x](https://github.com/dchristl/macless-haystack/tree/main/firmware/nrf5x), [Bluefruit devices](https://gist.github.com/bernikr/df70be66b2fd6dd40b80bce906948ef7)
        or [Flipper Zero](https://github.com/MatthewKuKanich/FindMyFlipper/tree/main?tab=readme-ov-file#step-by-step-instructions)
     2. For every tag create a `.priv_keys` file in the `./data/keys` folder containing one base64 enecoded private key
        per line.
        (Multiple lines are only needed if you are using rotating keys on the device.)
     3. The filename of the file will be used as the mqtt topic and name of the tag. E.g., `flipper.priv_keys` will result
        in its position reports to be posted to `owntracks/haystack/flipper`
-4. Start the container in interactive mode with `docker-compose run --rm haystack`
+4. Start the container in interactive mode with `docker compose run --rm haystack`
 5. Enter your 2FA code when you are asked for it
 6. Once you have sucessfully authenticated the 2FA, a `auth.json` file is created and you should be able to start the
    container normally

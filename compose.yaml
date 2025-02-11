@@ -21,6 +21,7 @@ services:
     image: dadoum/anisette-v3-server:latest
     volumes:
       - ./data/anisette:/home/Alcoholic/.config/anisette-v3/
+    user: '0:0'
     ports:
       - "6969:6969"
   owntracks:
