@@ -1,5 +1,6 @@
 # ruff: noqa: T201
 
+import os
 import re
 from pathlib import Path
 
@@ -82,6 +83,10 @@ for filename, regex, _ in VERSION_OCCURANCES:
 if has_wanings:
     print("WARNING: there were warnings, please check the output before contiuning")
     input("Press enter to continue")
+
+res = input("Update uv.lock? [y/N] ")
+if res.lower() in {"y", "yes"}:
+    os.system("uv lock")  # noqa: S605, S607
 
 res = input("Do you want to commit the changes? [y/N] ")
 if res.lower() in {"y", "yes"}:
