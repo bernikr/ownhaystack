@@ -14,6 +14,7 @@ VERSION_OCCURANCES = [
     ("main.py", r'(VERSION = ")(\S+)(")', 1),
     ("compose.yaml", r"(image: ghcr.io/bernikr/ownhaystack:)(\S+)()", 1),
 ]
+UPDATE_UV = True
 
 versions = set()
 has_wanings = False
@@ -80,17 +81,18 @@ for filename, regex, _ in VERSION_OCCURANCES:
         f.write(res)
         f.truncate()
 
+if UPDATE_UV:
+    os.system("uv lock")  # noqa: S605, S607
+
 if has_wanings:
     print("WARNING: there were warnings, please check the output before contiuning")
     input("Press enter to continue")
 
-res = input("Update uv.lock? [y/N] ")
-if res.lower() in {"y", "yes"}:
-    os.system("uv lock")  # noqa: S605, S607
-
 res = input("Do you want to commit the changes? [y/N] ")
 if res.lower() in {"y", "yes"}:
     repo.git.add(*{filename for filename, _, _ in VERSION_OCCURANCES})
+    if UPDATE_UV:
+        repo.git.add("uv.lock")
     repo.git.commit("-m", f"Bump version to {next_version}")
     repo.create_tag(f"v{next_version}", message=f"Bump version to {next_version}")
     print("changes committed and created tag")
