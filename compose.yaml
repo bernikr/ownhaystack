@@ -1,6 +1,6 @@
 services:
   haystack:
-    image: ghcr.io/bernikr/ownhaystack:0.1.0
+    image: ghcr.io/bernikr/ownhaystack:0.1.1
     depends_on:
       - mqtt
       - anisette
