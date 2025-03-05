@@ -25,7 +25,7 @@ from paho.mqtt.reasoncodes import ReasonCode
 
 from pypush_gsa_icloud import AppleHeaders
 
-VERSION = "0.1.2"
+VERSION = "0.1.3"
 
 load_dotenv()
 TRUSTED_DEVICE = bool(os.environ.get("TRUSTED_DEVICE"))
