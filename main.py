@@ -25,6 +25,8 @@ from paho.mqtt.reasoncodes import ReasonCode
 
 from pypush_gsa_icloud import AppleHeaders
 
+VERSION = "0.1.0"
+
 load_dotenv()
 TRUSTED_DEVICE = bool(os.environ.get("TRUSTED_DEVICE"))
 APPLE_USERNAME = os.environ["APPLE_USERNAME"]
@@ -213,6 +215,7 @@ def main() -> None:
 if __name__ == "__main__":
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     print = functools.partial(print, flush=True)  # noqa: A001
+    print(f"Ownhaystack {VERSION}")
 
     retries = 0
     RETRY_WAITS = [5] * 5 + [10] * 3 + [30] * 3 + [60] * 3 + [5 * 60] * 3 + [10 * 60] * 3

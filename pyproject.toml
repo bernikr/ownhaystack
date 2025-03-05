@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [tool.uv]
-dev-dependencies = ["ruff>=0.6.9"]
+dev-dependencies = ["gitpython>=3.1.44", "ruff>=0.9.9", "semver>=3.0.4"]
 
 [tool.ruff]
 line-length = 120
