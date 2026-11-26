@@ -1,4 +1,4 @@
-# ruff: noqa: PT009, PT027
+# ruff: file-ignore[pytest-unittest-assertion, pytest-unittest-raises-assertion]
 
 import unittest
 

@@ -12,8 +12,8 @@ from typing import Any, Literal, assert_never
 
 import pbkdf2
 import requests
-import srp._pysrp as srp  # noqa: PLC2701
-from Crypto.Hash import SHA256  # noqa: S413
+import srp._pysrp as srp  # ruff: ignore[import-private-name]
+from Crypto.Hash import SHA256  # ruff: ignore[suspicious-pycrypto-import]
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
@@ -32,7 +32,7 @@ def get_anisette_url() -> str:
             r = requests.get(url, timeout=1)
             if r.status_code == requests.codes.ok and r.json():
                 return url
-        except:  # noqa: E722, S110
+        except:  # ruff: ignore[bare-except, try-except-pass]
             pass
     msg = "No anisette servers found"
     raise Exception(msg)
@@ -73,7 +73,7 @@ class AppleHeaders:
         headers = {
             "X-Apple-ADSID": adsid,
             "User-Agent": "com.apple.iCloudHelper/282 CFNetwork/1408.0.4 Darwin/22.5.0",
-            "X-Mme-Client-Info": "<MacBookPro18,3> <Mac OS X;13.4.1;22F8> <com.apple.AOSKit/282 (com.apple.accountsd/113)>",  # noqa: E501
+            "X-Mme-Client-Info": "<MacBookPro18,3> <Mac OS X;13.4.1;22F8> <com.apple.AOSKit/282 (com.apple.accountsd/113)>",  # ruff: ignore[line-too-long]
         }
         headers.update(self.generate_anisette_headers())
 
@@ -82,13 +82,13 @@ class AppleHeaders:
             auth=(username, pet),
             data=data,
             headers=headers,
-            verify=False,  # noqa: S501
+            verify=False,  # ruff: ignore[request-with-no-cert-validation]
             timeout=10,
         )
 
         return plist.loads(r.content)
 
-    def gsa_authenticate(  # noqa: C901
+    def gsa_authenticate(  # ruff: ignore[complex-structure]
         self,
         username: str,
         password: str,
@@ -130,7 +130,7 @@ class AppleHeaders:
         PLISTHEADER = b"""\
 <?xml version='1.0' encoding='UTF-8'?>
 <!DOCTYPE plist PUBLIC '-//Apple//DTD PLIST 1.0//EN' 'http://www.apple.com/DTDs/PropertyList-1.0.dtd'>
-"""  # noqa: N806
+"""  # ruff: ignore[non-lowercase-variable-in-function]
         spd = plist.loads(PLISTHEADER + spd)
 
         if "au" in r["Status"] and r["Status"]["au"] in {
@@ -164,14 +164,14 @@ class AppleHeaders:
             "Content-Type": "text/x-xml-plist",
             "Accept": "*/*",
             "User-Agent": "akd/1.0 CFNetwork/978.0.7 Darwin/18.7.0",
-            "X-MMe-Client-Info": "<MacBookPro18,3> <Mac OS X;13.4.1;22F8> <com.apple.AOSKit/282 (com.apple.dt.Xcode/3594.4.19)>",  # noqa: E501
+            "X-MMe-Client-Info": "<MacBookPro18,3> <Mac OS X;13.4.1;22F8> <com.apple.AOSKit/282 (com.apple.dt.Xcode/3594.4.19)>",  # ruff: ignore[line-too-long]
         }
 
         resp = requests.post(
             "https://gsa.apple.com/grandslam/GsService2",
             headers=headers,
             data=plist.dumps(body),
-            verify=False,  # noqa: S501
+            verify=False,  # ruff: ignore[request-with-no-cert-validation]
             timeout=5,
         )
 
@@ -209,12 +209,12 @@ class AppleHeaders:
             "X-Apple-I-SRL-NO": serial,  # Serial number
         }
 
-    def encrypt_password(self, password: str, salt: Any, iterations: int, *, hex: bool = False) -> bytes:  # noqa: A002, ANN401, PLR6301
-        hash = hashlib.sha256(password.encode("utf-8"))  # noqa: A001
+    def encrypt_password(self, password: str, salt: Any, iterations: int, *, hex: bool = False) -> bytes:  # ruff: ignore[builtin-argument-shadowing, any-type, no-self-use]
+        hash = hashlib.sha256(password.encode("utf-8"))  # ruff: ignore[builtin-variable-shadowing]
         p = hash.hexdigest() if hex else hash.digest()
         return pbkdf2.PBKDF2(p, salt, iterations, SHA256).read(32)  # type: ignore
 
-    def create_session_key(self, usr: srp.User, name: str) -> bytes:  # noqa: PLR6301
+    def create_session_key(self, usr: srp.User, name: str) -> bytes:  # ruff: ignore[no-self-use]
         k = usr.get_session_key()
         if k is None:
             msg = "No session key"
@@ -246,7 +246,7 @@ class AppleHeaders:
             "X-Apple-Identity-Token": identity_token,
             "X-Apple-App-Info": "com.apple.gs.xcode.auth",
             "X-Xcode-Version": "11.2 (11B41)",
-            "X-Mme-Client-Info": "<MacBookPro18,3> <Mac OS X;13.4.1;22F8> <com.apple.AOSKit/282 (com.apple.dt.Xcode/3594.4.19)>",  # noqa: E501
+            "X-Mme-Client-Info": "<MacBookPro18,3> <Mac OS X;13.4.1;22F8> <com.apple.AOSKit/282 (com.apple.dt.Xcode/3594.4.19)>",  # ruff: ignore[line-too-long]
         }
 
         headers.update(self.generate_anisette_headers())
@@ -257,7 +257,7 @@ class AppleHeaders:
         requests.get(
             "https://gsa.apple.com/auth/verify/trusteddevice",
             headers=headers,
-            verify=False,  # noqa: S501
+            verify=False,  # ruff: ignore[request-with-no-cert-validation]
             timeout=10,
         )
 
@@ -269,7 +269,7 @@ class AppleHeaders:
         resp = requests.get(
             "https://gsa.apple.com/grandslam/GsService2/validate",
             headers=headers,
-            verify=False,  # noqa: S501
+            verify=False,  # ruff: ignore[request-with-no-cert-validation]
             timeout=10,
         )
         if resp.ok:
@@ -283,7 +283,7 @@ class AppleHeaders:
             "X-Apple-Identity-Token": identity_token,
             "X-Apple-App-Info": "com.apple.gs.xcode.auth",
             "X-Xcode-Version": "11.2 (11B41)",
-            "X-Mme-Client-Info": "<MacBookPro18,3> <Mac OS X;13.4.1;22F8> <com.apple.AOSKit/282 (com.apple.dt.Xcode/3594.4.19)>",  # noqa: E501
+            "X-Mme-Client-Info": "<MacBookPro18,3> <Mac OS X;13.4.1;22F8> <com.apple.AOSKit/282 (com.apple.dt.Xcode/3594.4.19)>",  # ruff: ignore[line-too-long]
         }
 
         headers.update(self.generate_anisette_headers())
@@ -297,7 +297,7 @@ class AppleHeaders:
             "https://gsa.apple.com/auth/verify/phone/",
             json=body,
             headers=headers,
-            verify=False,  # noqa: S501
+            verify=False,  # ruff: ignore[request-with-no-cert-validation]
             timeout=5,
         )
         if not t.ok:
@@ -313,7 +313,7 @@ class AppleHeaders:
             "https://gsa.apple.com/auth/verify/phone/securitycode",
             json=body,
             headers=headers,
-            verify=False,  # noqa: S501
+            verify=False,  # ruff: ignore[request-with-no-cert-validation]
             timeout=5,
         )
         if resp.ok:

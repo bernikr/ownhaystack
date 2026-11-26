@@ -5,17 +5,17 @@ description = "OpenHaystack + Owntracks"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "cryptography>=43.0.3",
-    "paho-mqtt>=2.1.0",
-    "pbkdf2>=1.3",
-    "pycryptodome>=3.21.0",
-    "python-dotenv>=1.0.1",
-    "requests>=2.32.3",
-    "srp>=1.0.21",
+  "cryptography>=50.0.2",
+  "paho-mqtt>=2.2.0",
+  "pbkdf2>=1.3",
+  "pycryptodome>=4.6.0",
+  "python-dotenv>=1.2.4",
+  "requests>=2.34.2",
+  "srp>=1.0.22",
 ]
 
-[tool.uv]
-dev-dependencies = ["ruff>=0.9.9"]
+[dependency-groups]
+dev = ["mypy>=2.4.1", "prek>=0.5.11", "ruff>=0.17.6"]
 
 [tool.ruff]
 line-length = 120
@@ -24,9 +24,14 @@ line-length = 120
 preview = true
 select = ["ALL"]
 ignore = [
-    "D",      # pydocstyle
-    "CPY",    # flake8-copyright
-    "T20",    # flake8-print
-    "TRY002", # Custom Exceptions
-    "PGH003", # Use specific rule codes when ignoring type issues
+  "D",                   # pydocstyle
+  "CPY",                 # flake8-copyright
+  "T20",                 # flake8-print
+  "raise-vanilla-class", # Custom Exceptions
+  "blanket-type-ignore", # Use specific rule codes when ignoring type issues
 ]
+
+[tool.mypy]
+strict = true
+local_partial_types = true
+allow_redefinition_new = true
