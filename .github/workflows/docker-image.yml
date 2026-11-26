@@ -4,6 +4,8 @@ on:
   push:
     branches: ["main"]
     tags: ["v*"]
+  pull_request:
+    branches: ["main"]
   workflow_call:
     inputs:
       version:
@@ -26,6 +28,7 @@ jobs:
       id-token: write
     steps:
       - name: Log in to the Container registry
+        if: github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ${{ env.REGISTRY }}
@@ -40,6 +43,9 @@ jobs:
           tags: |
             # Branch builds (only when no version was passed in)
             type=ref,event=branch,enable=${{ inputs.version == '' }}
+
+            # Pull request builds for testing
+            type=ref,event=pr
 
             # Tagged builds from a normal tag push
             type=semver,pattern={{version}},enable=${{ inputs.version == '' }}
@@ -62,7 +68,7 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          push: true
+          push: ${{ github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

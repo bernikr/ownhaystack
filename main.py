@@ -23,6 +23,7 @@ from paho.mqtt.enums import CallbackAPIVersion
 from paho.mqtt.properties import Properties
 from paho.mqtt.reasoncodes import ReasonCode
 
+from findmy_reports import FINDMY_FETCH_URL, build_fetch_request, parse_fetch_response
 from pypush_gsa_icloud import AppleHeaders
 
 VERSION = "0.1.3"
@@ -75,15 +76,15 @@ def get_auth(
 def download_reports(tag_ids: list[str], days: int = 7) -> list[dict[str, Any]]:
     unix_epoch = int(dt.datetime.now(tz=dt.UTC).timestamp())
     startdate = unix_epoch - (60 * 60 * 24 * days)
-    data = {"search": [{"startDate": startdate * 1000, "endDate": unix_epoch * 1000, "ids": tag_ids}]}
+    data = build_fetch_request(tag_ids, startdate * 1000, unix_epoch * 1000)
 
     ah = AppleHeaders(ANISETTE_URL)
     auth = get_auth(ah, second_factor="trusted_device" if TRUSTED_DEVICE else "sms")
     headers = ah.generate_anisette_headers()
 
-    print("making request to FindMy Network")
+    print(f"making request to FindMy Network for {len(tag_ids)} keys")
     r = requests.post(
-        "https://gateway.icloud.com/acsnservice/fetch",
+        FINDMY_FETCH_URL,
         auth=auth,
         headers=headers,
         json=data,
@@ -93,9 +94,14 @@ def download_reports(tag_ids: list[str], days: int = 7) -> list[dict[str, Any]]:
         print("Got 401 Unauthorized from Server try logging in again (might require 2fa agian)")
         get_auth(ah, regenerate=True)
     if r.status_code != requests.codes.ok:
-        msg = f"Status {r.status_code}: {r.text}"
+        msg = f"FindMy request failed with status {r.status_code}"
         raise Exception(msg)
-    res = r.json()["results"]
+    try:
+        body = r.json()
+    except ValueError as e:
+        msg = f"Could not parse FindMy response: {e}"
+        raise ValueError(msg) from e
+    res = parse_fetch_response(body)
     print(f"got {len(res)} results")
     return res
 
@@ -154,7 +160,7 @@ def decrypt_report(payload: str, key: ec.EllipticCurvePrivateKey) -> dict:
     }
 
 
-def main() -> None:
+def main() -> None:  # ruff: ignore[complex-structure]
     last_timestamps = {}
 
     def on_message(client: mqtt.Client, userdata: Any, msg: mqtt.MQTTMessage) -> None:  # ruff: ignore[any-type, unused-function-argument]
@@ -193,14 +199,21 @@ def main() -> None:
 
     keys, names = load_keys(KEY_FOLDER)
     enc_reports = download_reports(list(keys.keys()))
-    reports = [
-        (
-            names[r["id"]],
-            decrypt_report(r["payload"], keys[r["id"]])
-            | {"created_at": r["datePublished"] // 1000, "_type": "location"},
-        )
-        for r in enc_reports
-    ]
+    reports = []
+    for r in enc_reports:
+        key = keys.get(r["id"])
+        name = names.get(r["id"])
+        if key is None or name is None:
+            print("skipping report for an unknown advertisement key")
+            continue
+        try:
+            report = decrypt_report(r["payload"], key)
+        except Exception as e:  # ruff: ignore[blind-except]
+            print(f"skipping undecryptable report for {name}: {e}")
+            continue
+        # v2 no longer returns datePublished, so use the report's own timestamp.
+        report |= {"created_at": report["tst"], "_type": "location"}
+        reports.append((name, report))
     reports.sort(key=lambda r: r[1]["tst"])
     for name, report in reports:
         if report["tst"] > last_timestamps.get(name, 0):

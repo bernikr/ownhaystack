@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Dependency-free unit tests for the Find My request builder and response parser.
+
+### Changed
+- Location reports are now downloaded from Apple's Find My v2 endpoint (`/findmyservice/v2/fetch`) with one fetch object per advertisement key, so batched queries no longer return reports for only one key.
+- `created_at` on published locations now uses the decrypted report's own timestamp, since the v2 response no longer includes Apple's publish date.
+
 ---
 
 ## [0.1.3] - 2025-03-05
