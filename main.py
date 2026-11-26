@@ -1,5 +1,5 @@
 import base64
-import datetime
+import datetime as dt
 import functools
 import hashlib
 import json
@@ -50,7 +50,7 @@ def get_auth(
     second_factor: Literal["sms", "trusted_device"] = "sms",
 ) -> tuple[str, str]:
     if AUTH_FILE.exists() and not regenerate:
-        with AUTH_FILE.open("r") as f:
+        with AUTH_FILE.open("r", encoding="utf-8") as f:
             j = json.load(f)
     else:
         mobileme = apple_headers.icloud_login_mobileme(
@@ -59,7 +59,7 @@ def get_auth(
             second_factor=second_factor,
         )
         if mobileme["status"] != 0:
-            msg = f"Error logging in Apppe Account: {mobileme["status-message"]}"
+            msg = f"Error logging in Apppe Account: {mobileme['status-message']}"
             raise Exception(msg)
         j = {
             "dsid": mobileme["dsid"],
@@ -67,13 +67,13 @@ def get_auth(
                 "searchPartyToken"
             ],
         }
-        with AUTH_FILE.open("w") as f:
+        with AUTH_FILE.open("w", encoding="utf-8") as f:
             json.dump(j, f)
     return j["dsid"], j["searchPartyToken"]
 
 
 def download_reports(tag_ids: list[str], days: int = 7) -> list[dict[str, Any]]:
-    unix_epoch = int(datetime.datetime.now(tz=datetime.UTC).timestamp())
+    unix_epoch = int(dt.datetime.now(tz=dt.UTC).timestamp())
     startdate = unix_epoch - (60 * 60 * 24 * days)
     data = {"search": [{"startDate": startdate * 1000, "endDate": unix_epoch * 1000, "ids": tag_ids}]}
 
@@ -149,7 +149,7 @@ def decrypt_report(payload: str, key: ec.EllipticCurvePrivateKey) -> dict:
         "lat": struct.unpack(">i", decrypted[0:4])[0] / 10000000.0,
         "lon": struct.unpack(">i", decrypted[4:8])[0] / 10000000.0,
         "acc": int.from_bytes(decrypted[8:9], "big"),
-        # "status": int.from_bytes(decrypted[9:10], "big"),  # noqa: ERA001
+        # "status": int.from_bytes(decrypted[9:10], "big"),  # ruff: ignore[commented-out-code]
         "tst": int.from_bytes(data[0:4], "big") + 978307200,
     }
 
@@ -157,7 +157,7 @@ def decrypt_report(payload: str, key: ec.EllipticCurvePrivateKey) -> dict:
 def main() -> None:
     last_timestamps = {}
 
-    def on_message(client: mqtt.Client, userdata: Any, msg: mqtt.MQTTMessage) -> None:  # noqa: ANN401, ARG001
+    def on_message(client: mqtt.Client, userdata: Any, msg: mqtt.MQTTMessage) -> None:  # ruff: ignore[any-type, unused-function-argument]
         try:
             report = json.loads(msg.payload)
             name = msg.topic.split("/")[-1]
@@ -166,11 +166,11 @@ def main() -> None:
             return
 
     def on_connect(
-        client: mqtt.Client,  # noqa: ARG001
-        userdata: Any,  # noqa: ANN401, ARG001
-        flags: dict[str, Any],  # noqa: ARG001
+        client: mqtt.Client,  # ruff: ignore[unused-function-argument]
+        userdata: Any,  # ruff: ignore[any-type, unused-function-argument]
+        flags: dict[str, Any],  # ruff: ignore[unused-function-argument]
         reason_code: ReasonCode,
-        properties: Properties | None,  # noqa: ARG001
+        properties: Properties | None,  # ruff: ignore[unused-function-argument]
     ) -> None:
         if reason_code != "Success":
             msg = f"MQTT Connection Error: {reason_code}"
@@ -214,7 +214,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-    print = functools.partial(print, flush=True)  # noqa: A001
+    print = functools.partial(print, flush=True)  # ruff: ignore[builtin-variable-shadowing]
     print(f"Ownhaystack {VERSION}")
 
     retries = 0
@@ -225,7 +225,7 @@ if __name__ == "__main__":
             retries = 0
             print(f"Sleeping for {REFRESH_INTERVAL}s...")
             time.sleep(REFRESH_INTERVAL)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # ruff: ignore[blind-except]
             print(f"Encountered exception: {e}")
             traceback.print_exc()
             retries += 1
