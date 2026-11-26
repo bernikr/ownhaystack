@@ -53,6 +53,10 @@ All of this projects features are configured through environment variables:
 | AUTH_FILE         | `\data\auth.json` in docker<br/>`.\data\auth.json` otherwise           | Location of the auth file                                              |
 | KEY_FOLDER        | `\data\keys` in docker<br/>`.\data\keys` otherwise                     | Location of the private key files                                      |
 
+# Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for the release history.
+
 # Previous Work
 
 This project is based on: (Credits go to them for the hard work)
